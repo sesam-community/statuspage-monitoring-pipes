@@ -15,6 +15,6 @@ COPY ./service /service
 
 WORKDIR /service
 
-RUN echo '*/5  *  *  *  *    /service/monitoringpipes.py' > /etc/crontabs/root
+RUN echo '*/5  *  *  *  * python /service/monitoringpipes.py' > /etc/crontabs/root
 CMD crond -l 2 -f
 

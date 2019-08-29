@@ -41,5 +41,6 @@ want to monitor on status page.Below, is one example of creating one such config
         1. "statuspage" is mandatory tag and it is list of valid component groups of status page. 
         2. Please ensure that, component group name should valid (matches with name provided while creating system on 
         node).it is also case-sensative.
-        3. Please be informed that if any pipe, who does not have this configuration that would be remove
-         from status-page if it was earlier there.
+        3. Please be informed that if any pipe or component, who had earlier on status page but now removed from 
+        pipe-configuration (for that component group)that would be set as status "major_outage" on 
+        status-page.

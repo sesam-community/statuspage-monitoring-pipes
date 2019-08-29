@@ -4,7 +4,7 @@ import time
 
 import requests
 
-logger = logging.getLogger('Status_page_Manager')
+logger = logging.getLogger('status_page_manager')
 
 
 class StatusPageConnection(object):
@@ -29,11 +29,11 @@ class StatusPageConnection(object):
                 url = self.BASE_URL + '/pages/' + self.page_id + '/components/'
                 response = self.session.post(url, data=json_data)
                 if response.ok:
-                    logging.info(f"Component \"{item['Name']}\" added successfully for "
-                                 f"Group: \"{item['GroupName']}\" on status-page.")
+                    logger.info(f"Component \"{item['Name']}\" added successfully for "
+                                f"Group: \"{item['GroupName']}\" on status-page.")
                 time.sleep(1)
         except Exception as e:
-            logging.error(f"Issue while creating components through status page api {e}")
+            logger.error(f"Issue while creating components through status page api {e}")
 
     def update_component_status_page(self, item):
         if item['GroupId'] is not None:
@@ -45,11 +45,11 @@ class StatusPageConnection(object):
             url = self.BASE_URL + f'/pages/' + self.page_id + '/components/' + item['ComponentId']
             response = self.session.patch(url, data=json_data)
             if response.ok:
-                logging.info(f"Component \"{item['Name']}\", has been updated successfully for "
-                             f"Group: \"{item['GroupName']}\" on status-page.")
+                logger.info(f"Component \"{item['Name']}\", has been updated with status \"{item['Status'] }\" "
+                            f"successfully for Group: \"{item['GroupName']}\" on status-page.")
             time.sleep(1)
         except Exception as e:
-            logging.error(f"Issue while updating components for status page : {e}")
+            logger.error(f"Issue while updating components for status page : {e}")
 
     def delete_component_status_page(self, item):
         try:
@@ -57,7 +57,7 @@ class StatusPageConnection(object):
             response = self.session.delete(url)
             time.sleep(1)
             if response.ok:
-                logging.info(
+                logger.info(
                     f"Component \"{item['Name']}\" deleted successfully from "
                     f"Group: \"{item['GroupName']}\" on status-page.")
         except Exception as e:
@@ -80,10 +80,10 @@ class StatusPageConnection(object):
                 time.sleep(1)
                 return component_list
             else:
-                logging.error(f"Issue while fetching components from status-page api got: {response.status_code}")
+                logger.error(f"Issue while fetching components from status-page api got: {response.status_code}")
                 return component_list
         except Exception as e:
-            logging.error(f"Issue while fetching status-page api while fetching components{e}")
+            logger.error(f"Issue while fetching status-page api while fetching components{e}")
 
     def get_status_page_component_group_list(self):
         try:
@@ -99,8 +99,8 @@ class StatusPageConnection(object):
                 time.sleep(1)
                 return component_group_list
             else:
-                logging.error(
+                logger.error(
                     f"Issue while fetching components groups from status-page api, got: {response.status_code}")
                 return component_group_list
         except Exception as e:
-            logging.error(f"Issue while connecting status-page api while fetching components groups {e}")
+            logger.error(f"Issue while connecting status-page api while fetching components groups {e}")

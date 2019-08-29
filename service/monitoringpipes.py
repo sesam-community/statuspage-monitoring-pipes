@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-import datetime
 import logging
 import os
 import sys
+from enum import Enum
 
 import requests
 from requests.exceptions import ConnectionError
@@ -12,12 +12,19 @@ from statuspage import StatusPageConnection
 
 __author__ = "Ravish Ranjan"
 
-required_env_vars = ["api_key", "jwt", "page_id", "sesam_node_url", "status_page_groups",
-                     "min_hours_execution", "max_hours_execution"]
+required_env_vars = ["api_key", "jwt", "page_id", "sesam_node_url", "status_page_groups"]
 
 
 class AppConfig(object):
     pass
+
+
+class ComponentStatusEnum(Enum):
+    OPERATIONAL = 'operational'
+    MAINTENANCE = "under_maintenance"
+    DEGRADED = 'degraded_performance'
+    PARTIAL = 'partial_outage'
+    MAJOR = 'major_outage'
 
 
 config = AppConfig()
@@ -31,11 +38,17 @@ for env_var in required_env_vars:
     setattr(config, env_var, value)
 
 # logging settings
-log_level = logging.getLevelName(os.environ.get('LOG_LEVEL', 'DEBUG'))  # default log level = INFO
-logging.basicConfig(level=log_level)
+logger = logging.getLogger('status_page_manager')
+logger.setLevel({"INFO": logging.INFO,
+                 "DEBUG": logging.DEBUG,
+                 "WARNING": logging.WARNING,
+                 "ERROR": logging.ERROR}.get(os.getenv("LOG_LEVEL", "INFO")))  # Default log level: INFO
 
-logging.debug(datetime.datetime.now())
-logging.info(f"SESAM instance name {config.sesam_node_url}")
+stdout_handler = logging.StreamHandler()
+stdout_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(stdout_handler)
+
+logger.info(f"SESAM instance name {config.sesam_node_url}")
 
 status_page_conn = StatusPageConnection(config.api_key, config.page_id)
 
@@ -44,7 +57,7 @@ node_all_pipes = list()
 
 
 def prepare_payload():
-    pipe_list = filter_pipes_for_status_page()
+    pipe_list = get_pipes_for_status_page()
     component_group_list = status_page_conn.get_status_page_component_group_list()
     component_list = status_page_conn.get_status_page_component_list()
 
@@ -56,8 +69,8 @@ def prepare_payload():
             for pipe in pipe_list:
                 for group in pipe['Pipe_Status_Page_Groups']:
                     if group not in [g['GroupName'] for g in valid_component_groups]:
-                        logging.error(f"Nothing will happen for invalid Group "
-                                      f"Name: \"{group}\" provided for pipe: \"{pipe['Name']}\"")
+                        logger.error(f"Nothing will happen for invalid group "
+                                     f"Name: \"{group}\" provided for pipe: \"{pipe['Name']}\"")
 
             unknown_pipes = unknown_node_pipes_on_status_page()
 
@@ -69,92 +82,64 @@ def prepare_payload():
                 # Deletion of components if required :
                 delete_component(component_list, valid_group, pipe_list, unknown_pipes)
     else:
-        logging.info(f"No Valid Group Name provided in environmental "
-                     f"variable \"status_page_groups\" .So, doing nothing.")
+        logger.info(f"No Valid Group Name provided in environmental "
+                    f"variable \"status_page_groups\" .So, doing nothing.")
 
 
 def filter_pipes_for_status_page():
     global node_all_pipes
     node_all_pipes = get_sesam_node_pipe_list()
-    if node_all_pipes:
-        try:
-            filter_pipes = list()
-            keys = ['Name', 'Status', 'Pipe_Status_Page_Groups']
-            for each_pipe in node_all_pipes:
-                if each_pipe['config']['original'].get('metadata') is not None and \
-                        each_pipe['config']['original']['metadata'].get('statuspage') is not None:
-                    pipe_id = each_pipe['_id']
-                    status_groups_name = each_pipe['config']['original']['metadata']['statuspage']
-                    status = get_pipe_status(pipe_id)
-                    # if each_pipe['runtime']['success']:
-                    #     status = 'operational'
-                    # else:
-                    #     status = 'major_outage'
-                    filter_pipes.append(dict(zip(keys, [pipe_id, status, status_groups_name])))
-            return filter_pipes
-        except Exception as e:
-            logging.error(f'issue while filtering pipes for status page {e}')
-    else:
-        return node_all_pipes
-
-
-def get_pipe_status(pipe_id):
-    pipe_status = 'operational'
     try:
-        response = requests.get(url=config.sesam_node_url + "/datasets/system:pump:" + pipe_id +
-                                "/entities?deleted=false&history=false&reverse=true&uncommitted=false&limit=2",
-                                timeout=180,
-                                headers={'Authorization': 'bearer ' + config.jwt})
-
-
-        if response.ok:
-            execution_log_entities = response.json()
-            if len(execution_log_entities) > 0:
-                latest_log = execution_log_entities[0]  # Pick the most recent execution log entry
-                if latest_log['_id'] == 'pump-started':
-                    if len(execution_log_entities) > 1:
-                        second_latest_log = execution_log_entities[1]  # Pick the second most recent execution log entry
-                        if second_latest_log['_id'] == 'pump-failed':
-                            pipe_status = 'major_outage'
-                        elif second_latest_log['_id'] == 'pump-completed':
-                            pipe_status = set_status(latest_log['start_time'],
-                                                     datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
-                    else:
-                        pipe_status = set_status(latest_log['start_time'],
-                                                 datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
-                elif latest_log['_id'] == 'pump-completed':
-                    pipe_status = set_status(latest_log['start_time'], latest_log['end_time'])
-                elif latest_log['_id'] == 'pump-failed':
-                    pipe_status = 'major_outage'
-            return pipe_status
-        else:
-            logging.error(f"Issue while fetching node-pipes, got error {response.status_code}")
-            pipe_status = 'major_outage'
-            return pipe_status
-    except Timeout as e:
-        logging.error(f"Timeout issue while fetching execution log for pipe: {pipe_id}, got Error : {e}")
-        pipe_status = 'degraded_performance'
-        return pipe_status
-    except ConnectionError as e:
-        logging.error(f"ConnectionError issue while fetching execution log for pipe: {pipe_id}, got Error : {e}")
-        pipe_status = 'major_outage'
-        return pipe_status
+        filter_pipes = list()
+        keys = ['Name', 'Status', 'Pipe_Status_Page_Groups']
+        for each_pipe in node_all_pipes:
+            if each_pipe['config']['original'].get('metadata') is not None and \
+                    each_pipe['config']['original']['metadata'].get('statuspage') is not None:
+                pipe_id = each_pipe['_id']
+                status_groups_name = each_pipe['config']['original']['metadata']['statuspage']
+                status = ComponentStatusEnum.OPERATIONAL.value  # By default , it would be operational
+                filter_pipes.append(dict(zip(keys, [pipe_id, status, status_groups_name])))
+        return filter_pipes
     except Exception as e:
-        logging.error(f"issue while fetching execution log for pipe: {pipe_id}, got Error : {e}")
-        pipe_status = 'major_outage'
-        return pipe_status
+        logger.error(f"Issue while filtering pipes: {each_pipe['_id']} for status page,got error: {e}")
+        return filter_pipes  # Send valid pipes if any for further processing before occurring issue.
 
 
-def set_status(start_time, end_time):
-    diff = datetime.datetime.strptime(end_time, '%Y-%m-%dT%H:%M:%S.%fZ') - \
-           datetime.datetime.strptime(start_time, '%Y-%m-%dT%H:%M:%S.%fZ')
-    hours = diff.total_seconds() / 3600
-    if hours <= float(config.min_hours_execution):
-        return 'operational'
-    elif float(config.min_hours_execution) < hours <= float(config.max_hours_execution):
-        return 'partial_outage'
+def get_pipes_for_status_page():
+    filter_node_pipes = filter_pipes_for_status_page()
+    if filter_node_pipes:
+        try:
+            response = requests.get(url='https://portal.sesam.io/api/notifications-summary',
+                                    timeout=180,
+                                    headers={'Authorization': 'bearer ' + config.jwt})
+            if response.ok:
+                pipe_status_list = response.json()
+                for each_filter_pipe_item in filter_node_pipes:
+                    for each_status_pipe in pipe_status_list:
+                        if each_status_pipe.get('pipe_id') is not None and each_status_pipe['pipe_id'] == \
+                                each_filter_pipe_item['Name']:
+                            if each_status_pipe['status'] != 'ok':
+                                notifications_list = each_status_pipe['notifications']
+                                each_filter_pipe_item['Status'] = get_status(notifications_list)
+                return filter_node_pipes
+            else:
+                logger.error(f"Issue while fetching notifications-rule from portal, "
+                             f"g__len__ = {int} 4ot status code {response.status_code} ")
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"Issue while fetching notifications-rule from portal {e}")
+            sys.exit(1)
+
+
+def get_status(notifications_list):
+    if notifications_list:
+        for each_notifications in notifications_list:
+            if each_notifications['notification_rule_name'].startswith("partial"):
+                return ComponentStatusEnum.PARTIAL.value
+        return ComponentStatusEnum.MAJOR.value
     else:
-        return 'major_outage'
+        # In case  of no notifications rule, return major outage for 'failed' pipe-status.
+        return ComponentStatusEnum.MAJOR.value
 
 
 def get_sesam_node_pipe_list():
@@ -164,16 +149,18 @@ def get_sesam_node_pipe_list():
         if response.ok:
             return response.json()
         else:
-            logging.error(f"Issue while fetching node-pipes, got error {response.status_code}")
+            logger.error(f"Issue while fetching node-pipes, got error {response.status_code}")
             sys.exit(1)
     except Timeout as e:
-        logging.error(f"Timeout issue while fetching node pipes {e}")
-        update_all_component_directly("degraded_performance")
+        logger.error(f"Timeout issue while fetching node pipes {e}")
+        update_all_component_directly(ComponentStatusEnum.DEGRADED.value)
+        sys.exit(1)
     except ConnectionError as e:
-        logging.error(f"ConnectionError issue while fetching node pipes {e}")
-        update_all_component_directly("major_outage")
+        logger.error(f"ConnectionError issue while fetching node pipes {e}")
+        update_all_component_directly(ComponentStatusEnum.MAJOR.value)
+        sys.exit(1)
     except Exception as e:
-        logging.error(f"issue while fetching node pipes {e}")
+        logger.error(f"issue while fetching node pipes {e}")
         sys.exit(1)
 
 
@@ -195,8 +182,8 @@ def update_all_component_directly(status):
                     status_page_conn.update_component_status_page(update_item)
 
     else:
-        logging.info(f"No Valid Group Name provided in environmental "
-                     f"variable \"status_page_groups\" .So, doing nothing.")
+        logger.info(f"No Valid Group Name provided in environmental "
+                    f"variable \"status_page_groups\" .So, doing nothing.")
 
 
 def unknown_node_pipes_on_status_page():
@@ -211,8 +198,7 @@ def unknown_node_pipes_on_status_page():
                 unknown_pipe_list.append(dict(zip(keys, [pipe_id])))
         return unknown_pipe_list
     except Exception as e:
-        logging.error(f"issue while filtering pipes inside method unknown_pipes_of_statuspage {e}")
-
+        logger.error(f"issue while filtering pipes inside method unknown_pipes_of_statuspage {e}")
 
 
 def create_component(component_list, valid_group, pipe_list):
@@ -244,25 +230,25 @@ def update_component(component_list, valid_group, pipe_list):
 
 def delete_component(component_list, valid_group, pipe_list, unknown_pipes):
     delete_payload_list = [d for d in component_list for x in pipe_list if d['Name'] == x['Name'] and
-                           d['GroupId'] == valid_group['GroupId'] and d['Status'] != 'major_outage' and
+                           d['GroupId'] == valid_group['GroupId'] and d['Status'] != ComponentStatusEnum.MAJOR.value and
                            valid_group['GroupName'] not in x['Pipe_Status_Page_Groups']]
 
     if delete_payload_list:
         for delete_item in delete_payload_list:
             # Adding a new key value pair to just log Group Name
-            delete_item['Status'] = "major_outage"
+            delete_item['Status'] = ComponentStatusEnum.MAJOR.value
             delete_item.update({'GroupName': valid_group['GroupName']})
             # No hard delete only change the status and Admin of status page will decide to keep it or not.
             status_page_conn.update_component_status_page(delete_item)
 
     # delete un-wanted or unknown components if any from status-page (clean-up task)
     unknown_delete_payload_list = [d for d in component_list for x in unknown_pipes
-                                   if d['Name'] == x['Name'] and d['Status'] != 'major_outage'
+                                   if d['Name'] == x['Name'] and d['Status'] != ComponentStatusEnum.MAJOR.value
                                    and d['GroupId'] == valid_group['GroupId']]
 
     if unknown_delete_payload_list:
         for unknown_delete_item in unknown_delete_payload_list:
-            unknown_delete_item['Status'] = "major_outage"
+            unknown_delete_item['Status'] = ComponentStatusEnum.MAJOR.value
             unknown_delete_item.update({'GroupName': valid_group['GroupName']})
             # No hard delete only change the status.
             status_page_conn.update_component_status_page(unknown_delete_item)
@@ -270,7 +256,9 @@ def delete_component(component_list, valid_group, pipe_list, unknown_pipes):
 
 if __name__ == '__main__':
     if len(missing_env_vars) != 0:
-        logging.error(f"Missing the following required environment variable(s) {missing_env_vars}")
+        logger.error(f"Missing the following required environment variable(s) {missing_env_vars}")
         sys.exit(1)
     else:
         prepare_payload()
+
+
