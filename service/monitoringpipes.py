@@ -113,20 +113,20 @@ def get_pipes_for_status_page():
             with requests.Session() as session:
                 response = session.get(url='https://portal.sesam.io/api/notifications-summary', timeout=180,
                                        headers={'Authorization': 'bearer ' + config.jwt})
-            if response.ok:
-                pipe_status_list = response.json()
-                for each_filter_pipe_item in filter_node_pipes:
-                    for each_status_pipe in pipe_status_list:
-                        if each_status_pipe.get('pipe_id') is not None and each_status_pipe['pipe_id'] == \
-                                each_filter_pipe_item['Name']:
-                            if each_status_pipe['status'] != 'ok':
-                                notifications_list = each_status_pipe['notifications']
-                                each_filter_pipe_item['Status'] = get_status(notifications_list)
-                return filter_node_pipes
-            else:
-                logger.error(f"Issue while fetching notifications-rule from portal, "
-                             f"g__len__ = {int} 4ot status code {response.status_code} ")
-                sys.exit(1)
+                if response.ok:
+                    pipe_status_list = response.json()
+                    for each_filter_pipe_item in filter_node_pipes:
+                        for each_status_pipe in pipe_status_list:
+                            if each_status_pipe.get('pipe_id') is not None and each_status_pipe['pipe_id'] == \
+                                    each_filter_pipe_item['Name']:
+                                if each_status_pipe['status'] != 'ok':
+                                    notifications_list = each_status_pipe['notifications']
+                                    each_filter_pipe_item['Status'] = get_status(notifications_list)
+                    return filter_node_pipes
+                else:
+                    logger.error(f"Issue while fetching notifications-rule from portal, "
+                                 f"error status code {response.status_code} ")
+                    sys.exit(1)
         except Exception as e:
             logger.error(f"Issue while fetching notifications-rule from portal {e}")
             sys.exit(1)
@@ -148,11 +148,11 @@ def get_sesam_node_pipe_list():
         with requests.session() as session:
             response = session.get(url=config.sesam_node_url + "/pipes", timeout=180,
                                    headers={'Authorization': 'bearer ' + config.jwt})
-        if response.ok:
-            return response.json()
-        else:
-            logger.error(f"Issue while fetching node-pipes, got error {response.status_code}")
-            sys.exit(1)
+            if response.ok:
+                return response.json()
+            else:
+                logger.error(f"Issue while fetching node-pipes, got error {response.status_code}")
+                sys.exit(1)
     except Timeout as e:
         logger.error(f"Timeout issue while fetching node pipes {e}")
         update_all_component_directly(ComponentStatusEnum.DEGRADED.value)
