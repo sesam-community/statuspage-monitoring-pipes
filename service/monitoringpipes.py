@@ -5,6 +5,7 @@ import os
 import sys
 from enum import Enum
 
+
 import requests
 from requests.exceptions import ConnectionError
 from requests.exceptions import Timeout
@@ -109,9 +110,9 @@ def get_pipes_for_status_page():
     filter_node_pipes = filter_pipes_for_status_page()
     if filter_node_pipes:
         try:
-            response = requests.get(url='https://portal.sesam.io/api/notifications-summary',
-                                    timeout=180,
-                                    headers={'Authorization': 'bearer ' + config.jwt})
+            with requests.Session() as session:
+                response = session.get(url='https://portal.sesam.io/api/notifications-summary', timeout=180,
+                                       headers={'Authorization': 'bearer ' + config.jwt})
             if response.ok:
                 pipe_status_list = response.json()
                 for each_filter_pipe_item in filter_node_pipes:
@@ -144,8 +145,9 @@ def get_status(notifications_list):
 
 def get_sesam_node_pipe_list():
     try:
-        response = requests.get(url=config.sesam_node_url + "/pipes", timeout=180,
-                                headers={'Authorization': 'bearer ' + config.jwt})
+        with requests.session() as session:
+            response = session.get(url=config.sesam_node_url + "/pipes", timeout=180,
+                                   headers={'Authorization': 'bearer ' + config.jwt})
         if response.ok:
             return response.json()
         else:
@@ -260,5 +262,4 @@ if __name__ == '__main__':
         sys.exit(1)
     else:
         prepare_payload()
-
 
