@@ -225,9 +225,9 @@ def update_component(component_list, valid_group, pipe_list):
     if update_payload_list:
         for update_item in update_payload_list:
             d = next(item for item in pipe_list if item['Name'] == update_item['Name'])
-        update_item['Status'] = d['Status']
-        update_item.update({'GroupName': valid_group['GroupName']})
-        status_page_conn.update_component_status_page(update_item)
+            update_item['Status'] = d['Status']
+            update_item.update({'GroupName': valid_group['GroupName']})
+            status_page_conn.update_component_status_page(update_item)
 
 
 def delete_component(component_list, valid_group, pipe_list, unknown_pipes):
