@@ -117,8 +117,7 @@ def get_pipes_for_status_page():
                     pipe_status_list = response.json()
                     for each_filter_pipe_item in filter_node_pipes:
                         for each_status_pipe in pipe_status_list:
-                            if each_status_pipe.get('pipe_id') is not None and each_status_pipe['pipe_id'] == \
-                                    each_filter_pipe_item['Name']:
+                            if each_status_pipe.get('pipe_id') is not None and each_status_pipe['pipe_id'] == each_filter_pipe_item['Name'] and 'status' in each_status_pipe:
                                 if each_status_pipe['status'] != 'ok':
                                     notifications_list = each_status_pipe['notifications']
                                     each_filter_pipe_item['Status'] = get_status(notifications_list)
@@ -262,4 +261,3 @@ if __name__ == '__main__':
         sys.exit(1)
     else:
         prepare_payload()
-
